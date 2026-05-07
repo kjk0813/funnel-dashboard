@@ -63,6 +63,67 @@ function impactStyle(imp: PhaseImpact) {
   return { bg, color, label }
 }
 
+// ─── CSV パーサー ─────────────────────────────────────────
+function parseCSV(text: string): { data: MonthlyRecord[]; labels: string[] } | null {
+  // BOM・改行コード正規化
+  const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const lines = clean.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return null
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+  const col = (name: string) => headers.indexOf(name)
+
+  const monthCol = col('month') >= 0 ? col('month') : 0
+  const adCol = col('ad')
+  const semCol = col('sem_y')
+  const isCol = col('is_y')
+  const apptCol = col('appt_y')
+  const firstCol = col('first_y')
+  const propCol = col('prop_y')
+  const closeCol = col('close_y')
+  const upCol = col('up_y')
+
+  if ([adCol, semCol, isCol, apptCol, firstCol, propCol, closeCol, upCol].some(i => i < 0)) {
+    return null
+  }
+
+  const data: MonthlyRecord[] = []
+  const labels: string[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim())
+    labels.push(cols[monthCol] || `${i}月`)
+    data.push({
+      ad: parseFloat(cols[adCol]) || 0,
+      sem_y: parseFloat(cols[semCol]) || 0,
+      is_y: parseFloat(cols[isCol]) || 0,
+      appt_y: parseFloat(cols[apptCol]) || 0,
+      first_y: parseFloat(cols[firstCol]) || 0,
+      prop_y: parseFloat(cols[propCol]) || 0,
+      close_y: parseFloat(cols[closeCol]) || 0,
+      up_y: parseFloat(cols[upCol]) || 0,
+    })
+  }
+
+  return { data, labels }
+}
+
+// ─── CSVテンプレート生成 ──────────────────────────────────
+function downloadTemplate() {
+  const header = 'month,ad,sem_y,is_y,appt_y,first_y,prop_y,close_y,up_y'
+  const rows = MONTHLY.map((d, i) =>
+    `${MONTH_LABELS[i]},${d.ad},${d.sem_y},${d.is_y},${d.appt_y},${d.first_y},${d.prop_y},${d.close_y},${d.up_y}`
+  )
+  const csv = [header, ...rows].join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'funnel_template.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ─── AI KB ───────────────────────────────────────────────
 type Msg = { role: 'user' | 'ai'; text: string }
 const KB: Record<string, string> = {
@@ -142,18 +203,28 @@ function getReply(q: string): string {
 }
 
 // ─── ファネルタブ ─────────────────────────────────────────
-function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseClick: (id: string) => void }) {
+function FunnelTab({
+  monthIndex,
+  onPhaseClick,
+  monthlyData,
+  monthLabels,
+}: {
+  monthIndex: number
+  onPhaseClick: (id: string) => void
+  monthlyData: MonthlyRecord[]
+  monthLabels: string[]
+}) {
   const [trendPhase, setTrendPhase] = useState('is')
   const mi = monthIndex
   const mi1 = Math.max(0, mi - 1)
-  const vols = calcVols(mi)
+  const vols = calcVols(monthlyData, mi)
   const volArray = [vols.ad, vols.sem, vols.is, vols.appt, vols.first, vols.prop, vols.close, vols.upsell]
   const maxVol = Math.max(...volArray.filter(Boolean) as number[])
   const close = vols.close
-  const close1 = calcVols(mi1).close
+  const close1 = calcVols(monthlyData, mi1).close
   const rev = calcRevenue(close)
-  const cac = Math.round(MONTHLY[mi].ad * 120 / close)
-  const cvrAll = (close / MONTHLY[mi].ad * 100).toFixed(3)
+  const cac = Math.round(monthlyData[mi].ad * 120 / close)
+  const cvrAll = (close / monthlyData[mi].ad * 100).toFixed(3)
 
   const kpis = [
     { label: '月次成約件数', value: `${close}件`, sub: `前月比 ${close >= close1 ? '+' : ''}${close - close1}件`, good: close >= close1 },
@@ -163,8 +234,8 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
   ]
 
   const tp = PHASES.find(p => p.id === trendPhase)!
-  const trendData = MONTHLY.map((d, i) => ({
-    month: MONTH_LABELS[i],
+  const trendData = monthlyData.map((d, i) => ({
+    month: monthLabels[i],
     value: tp.yieldKey ? d[tp.yieldKey as keyof MonthlyRecord] as number : 0,
   }))
 
@@ -199,8 +270,8 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
         <div>
           {PHASES.map((p, i) => {
             const vol = volArray[i]
-            const yieldVal = p.yieldKey ? MONTHLY[mi][p.yieldKey as keyof MonthlyRecord] as number : null
-            const prevYieldVal = p.yieldKey ? MONTHLY[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
+            const yieldVal = p.yieldKey ? monthlyData[mi][p.yieldKey as keyof MonthlyRecord] as number : null
+            const prevYieldVal = p.yieldKey ? monthlyData[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
             const target = p.yieldTarget
             const hasY = yieldVal !== null && target !== null
             const barW = vol != null ? Math.round(vol / maxVol * 100) : 10
@@ -286,19 +357,29 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
 }
 
 // ─── フェーズ詳細タブ ────────────────────────────────────
-function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPhase: string }) {
+function PhaseTab({
+  monthIndex,
+  initialPhase,
+  monthlyData,
+  monthLabels,
+}: {
+  monthIndex: number
+  initialPhase: string
+  monthlyData: MonthlyRecord[]
+  monthLabels: string[]
+}) {
   const [selected, setSelected] = useState(initialPhase)
   useEffect(() => setSelected(initialPhase), [initialPhase])
 
   const mi = monthIndex
   const mi1 = Math.max(0, mi - 1)
   const p = PHASES.find(x => x.id === selected)!
-  const vols = calcVols(mi)
+  const vols = calcVols(monthlyData, mi)
   const volArray = [vols.ad, vols.sem, vols.is, vols.appt, vols.first, vols.prop, vols.close, vols.upsell]
   const idx = PHASES.findIndex(x => x.id === selected)
   const vol = volArray[idx]
-  const yieldVal = p.yieldKey ? MONTHLY[mi][p.yieldKey as keyof MonthlyRecord] as number : null
-  const prevYieldVal = p.yieldKey ? MONTHLY[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
+  const yieldVal = p.yieldKey ? monthlyData[mi][p.yieldKey as keyof MonthlyRecord] as number : null
+  const prevYieldVal = p.yieldKey ? monthlyData[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
   const target = p.yieldTarget
   const hasY = yieldVal !== null && target !== null
   const dy = hasY && prevYieldVal !== null ? yieldVal! - prevYieldVal : null
@@ -325,7 +406,7 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-3">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="flex-1 min-w-48">
-            <p className="text-xs text-gray-400 mb-1">{p.icon} {p.name} → {p.owner} / {MONTH_LABELS[mi]}</p>
+            <p className="text-xs text-gray-400 mb-1">{p.icon} {p.name} → {p.owner} / {monthLabels[mi]}</p>
             <p className="text-2xl font-medium" style={{ color: p.ownerColor }}>
               {fmtN(vol ?? 0)}<span className="text-sm font-normal text-gray-400 ml-1">{p.volUnit}</span>
             </p>
@@ -411,17 +492,17 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
 }
 
 // ─── 改善シミュタブ ──────────────────────────────────────
-function SimTab({ monthIndex }: { monthIndex: number }) {
+function SimTab({ monthIndex, monthlyData }: { monthIndex: number; monthlyData: MonthlyRecord[] }) {
   const [overrides, setOverrides] = useState<Overrides>({})
   const mi = monthIndex
-  const base = calcVols(mi)
-  const sim = calcVols(mi, overrides)
+  const base = calcVols(monthlyData, mi)
+  const sim = calcVols(monthlyData, mi, overrides)
   const baseRev = calcRevenue(base.close)
   const simRev = calcRevenue(sim.close)
   const dr = simRev - baseRev
   const dc = sim.close - base.close
-  const cvrBase = (base.close / MONTHLY[mi].ad * 100).toFixed(3)
-  const cvrSim = (sim.close / MONTHLY[mi].ad * 100).toFixed(3)
+  const cvrBase = (base.close / monthlyData[mi].ad * 100).toFixed(3)
+  const cvrSim = (sim.close / monthlyData[mi].ad * 100).toFixed(3)
 
   const sliders = PHASES.filter(p => p.yieldKey && p.yieldTarget)
   const applyTarget = () => {
@@ -450,7 +531,7 @@ function SimTab({ monthIndex }: { monthIndex: number }) {
         <div className="space-y-4">
           {sliders.map(p => {
             const key = p.yieldKey as keyof MonthlyRecord
-            const cur = MONTHLY[mi][key] as number
+            const cur = monthlyData[mi][key] as number
             const sv = (overrides as Record<string, number>)[p.yieldKey!] ?? cur
             const min = Math.max(0, cur - 20).toFixed(1)
             const max = Math.min(100, p.yieldTarget! + 10).toFixed(1)
@@ -715,25 +796,95 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('funnel')
   const [monthIndex, setMonthIndex] = useState(3)
   const [selectedPhase, setSelectedPhase] = useState('ad')
+  const [monthlyData, setMonthlyData] = useState<MonthlyRecord[]>(MONTHLY)
+  const [monthLabels, setMonthLabels] = useState<string[]>(MONTH_LABELS)
+  const [csvError, setCsvError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handlePhaseClick = (id: string) => {
     setSelectedPhase(id)
     setTab('phase')
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const result = parseCSV(text)
+      if (result && result.data.length > 0) {
+        setMonthlyData(result.data)
+        setMonthLabels(result.labels)
+        setMonthIndex(0)
+        setCsvError('')
+      } else {
+        setCsvError('CSVの形式が正しくありません。テンプレートを確認してください。')
+      }
+    }
+    reader.readAsText(file, 'UTF-8')
+    e.target.value = ''
+  }
+
+  const resetData = () => {
+    setMonthlyData(MONTHLY)
+    setMonthLabels(MONTH_LABELS)
+    setMonthIndex(3)
+    setCsvError('')
+  }
+
+  const isCustomData = monthlyData !== MONTHLY
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ヘッダー */}
-      <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
-        <h1 className="text-sm font-semibold text-gray-900">セールスファネル ダッシュボード ダミーデータ</h1>
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-sm font-semibold text-gray-900">
+          セールスファネル ダッシュボード
+          {isCustomData && (
+            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+              CSVデータ反映中
+            </span>
+          )}
+        </h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          {csvError && (
+            <span className="text-xs text-red-500">{csvError}</span>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <button
+            onClick={downloadTemplate}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+          >
+            テンプレDL
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            CSVを読み込む
+          </button>
+          {isCustomData && (
+            <button
+              onClick={resetData}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+            >
+              デフォルトに戻す
+            </button>
+          )}
           <span className="text-xs text-gray-400">月次:</span>
           <select
             value={monthIndex}
             onChange={e => setMonthIndex(Number(e.target.value))}
             className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600"
           >
-            {MONTH_LABELS.map((label, i) => <option key={i} value={i}>2024年{label}</option>)}
+            {monthLabels.map((label, i) => <option key={i} value={i}>{label}</option>)}
           </select>
         </div>
       </header>
@@ -755,9 +906,25 @@ export default function App() {
 
       {/* コンテンツ */}
       <main className="max-w-5xl mx-auto p-4">
-        {tab === 'funnel' && <FunnelTab monthIndex={monthIndex} onPhaseClick={handlePhaseClick} />}
-        {tab === 'phase' && <PhaseTab monthIndex={monthIndex} initialPhase={selectedPhase} />}
-        {tab === 'sim' && <SimTab monthIndex={monthIndex} />}
+        {tab === 'funnel' && (
+          <FunnelTab
+            monthIndex={monthIndex}
+            onPhaseClick={handlePhaseClick}
+            monthlyData={monthlyData}
+            monthLabels={monthLabels}
+          />
+        )}
+        {tab === 'phase' && (
+          <PhaseTab
+            monthIndex={monthIndex}
+            initialPhase={selectedPhase}
+            monthlyData={monthlyData}
+            monthLabels={monthLabels}
+          />
+        )}
+        {tab === 'sim' && (
+          <SimTab monthIndex={monthIndex} monthlyData={monthlyData} />
+        )}
         {tab === 'ext' && <ExtTab />}
         {tab === 'ai' && <AITab />}
       </main>

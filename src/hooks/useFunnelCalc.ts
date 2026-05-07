@@ -1,4 +1,4 @@
-import { MONTHLY, AVG_FEE } from '../data/monthly'
+import { AVG_FEE } from '../data/monthly'
 import type { MonthlyRecord } from '../data/monthly'
 
 export type Overrides = Partial<MonthlyRecord>
@@ -14,12 +14,12 @@ export type FunnelVols = {
   upsell: number
 }
 
-function merged(monthIndex: number, overrides: Overrides): MonthlyRecord {
-  return { ...MONTHLY[monthIndex], ...overrides }
+function merged(monthlyData: MonthlyRecord[], monthIndex: number, overrides: Overrides): MonthlyRecord {
+  return { ...monthlyData[monthIndex], ...overrides }
 }
 
-export function calcVols(monthIndex: number, overrides: Overrides = {}): FunnelVols {
-  const d = merged(monthIndex, overrides)
+export function calcVols(monthlyData: MonthlyRecord[], monthIndex: number, overrides: Overrides = {}): FunnelVols {
+  const d = merged(monthlyData, monthIndex, overrides)
 
   const ad = d.ad
   const sem = Math.round(ad * (d.sem_y / 100))
@@ -33,16 +33,16 @@ export function calcVols(monthIndex: number, overrides: Overrides = {}): FunnelV
   return { ad, sem, is: is_, appt, first, prop, close, upsell }
 }
 
-export function calcClose(monthIndex: number, overrides: Overrides = {}): number {
-  return calcVols(monthIndex, overrides).close
+export function calcClose(monthlyData: MonthlyRecord[], monthIndex: number, overrides: Overrides = {}): number {
+  return calcVols(monthlyData, monthIndex, overrides).close
 }
 
 export function calcRevenue(closeCount: number, avgFee: number = AVG_FEE): number {
   return closeCount * avgFee
 }
 
-export function useFunnelCalc(monthIndex: number, overrides: Overrides = {}) {
-  const vols = calcVols(monthIndex, overrides)
+export function useFunnelCalc(monthlyData: MonthlyRecord[], monthIndex: number, overrides: Overrides = {}) {
+  const vols = calcVols(monthlyData, monthIndex, overrides)
   const closeCount = vols.close
   const revenue = calcRevenue(closeCount)
 
