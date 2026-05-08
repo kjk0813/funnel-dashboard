@@ -61,13 +61,9 @@ function impactStyle(imp: PhaseImpact) {
   return { bg, color, label }
 }
 
-<<<<<<< HEAD
 // ─── CSV パーサー ─────────────────────────────────────────
 function parseCSV(text: string): { data: MonthlyRecord[]; labels: string[] } | null {
   // BOM・改行コード正規化
-=======
-function parseCSV(text: string): { data: MonthlyRecord[]; labels: string[] } | null {
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
   const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const lines = clean.trim().split('\n').map(l => l.trim()).filter(Boolean)
   if (lines.length < 2) return null
@@ -110,10 +106,7 @@ function parseCSV(text: string): { data: MonthlyRecord[]; labels: string[] } | n
   return { data, labels }
 }
 
-<<<<<<< HEAD
 // ─── CSVテンプレート生成 ──────────────────────────────────
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
 function downloadTemplate() {
   const header = 'month,ad,sem_y,is_y,appt_y,first_y,prop_y,close_y,up_y'
   const rows = MONTHLY.map((d, i) =>
@@ -129,10 +122,7 @@ function downloadTemplate() {
   URL.revokeObjectURL(url)
 }
 
-<<<<<<< HEAD
 // ─── AI KB ───────────────────────────────────────────────
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
 type Msg = { role: 'user' | 'ai'; text: string }
 const KB: Record<string, string> = {
   is_drop:
@@ -202,10 +192,7 @@ function getReply(q: string): string {
   return KB.default
 }
 
-<<<<<<< HEAD
 // ─── ファネルタブ ─────────────────────────────────────────
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
 function FunnelTab({
   monthIndex,
   onPhaseClick,
@@ -356,10 +343,7 @@ function FunnelTab({
   )
 }
 
-<<<<<<< HEAD
 // ─── フェーズ詳細タブ ────────────────────────────────────
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
 function PhaseTab({
   monthIndex,
   initialPhase,
@@ -490,10 +474,7 @@ function PhaseTab({
   )
 }
 
-<<<<<<< HEAD
 // ─── 改善シミュタブ ──────────────────────────────────────
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
 function SimTab({ monthIndex, monthlyData }: { monthIndex: number; monthlyData: MonthlyRecord[] }) {
   const [overrides, setOverrides] = useState<Overrides>({})
   const mi = monthIndex
@@ -827,10 +808,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-<<<<<<< HEAD
       {/* ヘッダー */}
-=======
->>>>>>> 08ebe50500ae1b90f99d95b12b75481da2b6c8a7
       <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-sm font-semibold text-gray-900">
           セールスファネル ダッシュボード
