@@ -11,7 +11,6 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 
-// ─── 定数 ───────────────────────────────────────────────
 const G = '#1D9E75'
 const Y = '#EF9F27'
 const R = '#E24B4A'
@@ -24,7 +23,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'ai', label: 'AI分析' },
 ]
 
-// ─── ユーティリティ ──────────────────────────────────────
 function fmtN(n: number) {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
   return n.toLocaleString('ja-JP')
@@ -63,7 +61,64 @@ function impactStyle(imp: PhaseImpact) {
   return { bg, color, label }
 }
 
-// ─── AI KB ───────────────────────────────────────────────
+function parseCSV(text: string): { data: MonthlyRecord[]; labels: string[] } | null {
+  const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const lines = clean.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return null
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+  const col = (name: string) => headers.indexOf(name)
+
+  const monthCol = col('month') >= 0 ? col('month') : 0
+  const adCol = col('ad')
+  const semCol = col('sem_y')
+  const isCol = col('is_y')
+  const apptCol = col('appt_y')
+  const firstCol = col('first_y')
+  const propCol = col('prop_y')
+  const closeCol = col('close_y')
+  const upCol = col('up_y')
+
+  if ([adCol, semCol, isCol, apptCol, firstCol, propCol, closeCol, upCol].some(i => i < 0)) {
+    return null
+  }
+
+  const data: MonthlyRecord[] = []
+  const labels: string[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim())
+    labels.push(cols[monthCol] || `${i}月`)
+    data.push({
+      ad: parseFloat(cols[adCol]) || 0,
+      sem_y: parseFloat(cols[semCol]) || 0,
+      is_y: parseFloat(cols[isCol]) || 0,
+      appt_y: parseFloat(cols[apptCol]) || 0,
+      first_y: parseFloat(cols[firstCol]) || 0,
+      prop_y: parseFloat(cols[propCol]) || 0,
+      close_y: parseFloat(cols[closeCol]) || 0,
+      up_y: parseFloat(cols[upCol]) || 0,
+    })
+  }
+
+  return { data, labels }
+}
+
+function downloadTemplate() {
+  const header = 'month,ad,sem_y,is_y,appt_y,first_y,prop_y,close_y,up_y'
+  const rows = MONTHLY.map((d, i) =>
+    `${MONTH_LABELS[i]},${d.ad},${d.sem_y},${d.is_y},${d.appt_y},${d.first_y},${d.prop_y},${d.close_y},${d.up_y}`
+  )
+  const csv = [header, ...rows].join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'funnel_template.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 type Msg = { role: 'user' | 'ai'; text: string }
 const KB: Record<string, string> = {
   is_drop:
@@ -73,8 +128,8 @@ const KB: Record<string, string> = {
     `🔴 初回コールスピード: セミナー後平均51時間（目標4時間以内）\n` +
     `🔴 BANTヒアリング完了率: 41%（目標75%）\n` +
     `🔴 担当者間アポ獲得率ギャップ: 最大31pt差\n` +
-    `🟡 コール試行回数: 平均1.7回（目標3回×3日ルール）\n\n` +
-    `**外部要因**: 競合の無料プラン拡大でセミナー参加者の比較検討期間が長期化。鮮度が落ちた状態でコールしても刺さりにくくなっています。\n\n` +
+    `🟡 コール試行回数: 平1.7回（目標3回×3日ルール）\n\n` +
+    `**外部要因**: 競合の無料プラン拡大でセミナー参加者の比較検討期間が長期化。\n\n` +
     `**即効施策**: セミナー終了後4時間以内コールSLAの設定（コストゼロで最大インパクト）。これだけでも月次+¥180万の改善余地あり。`,
   impact:
     `**フェーズ別 歩留まり+1pt の月次売上インパクト**\n\n` +
@@ -85,17 +140,14 @@ const KB: Record<string, string> = {
     `5. 🟡 **IS対応→アポ**: +¥52万/pt\n` +
     `6. 🟢 **セミナー→IS対応**: +¥28万/pt\n` +
     `7. 🟢 **広告→セミナー申込**: +¥9.5万/pt\n\n` +
-    `**示唆**: 後フェーズほど1ptのインパクトが大きい。ただし現在のボトルネックは**IS対応（目標比49%）**と**アポ→初回商談（目標比77%）**に集中。\n\n` +
-    `全フェーズを目標値に改善すると月次成約数 143件 → 推定280件超、売上は現在の約2倍の水準になります（シミュタブで確認可）。`,
+    `**示唠**: 後フェーズほど 1ptのインパクトが大きい。現在のボトルネックはIS対応とアポ→初回商談に集中。`,
   seminar_is:
     `**セミナー→IS引き渡しのボトルネック分析**\n\n` +
     `セミナー→IS対応移行率: 43.6%（目標58%）\n\n` +
     `**2段階の問題がある:**\n\n` +
-    `① セミナー申込→実際の出席率が69%（目標82%）\n` +
-    `→ リマインドメールが3段階（3日前・前日・当日）で自動化されていないため離脱発生\n\n` +
-    `② セミナー参加→IS引き渡しスピードが51時間（目標4時間以内）\n` +
-    `→ セミナー終了後にISへのホットリストが共有されず、翌営業日対応になっている\n\n` +
-    `**温度感が冷める構造**: セミナー参加直後が最も熱量が高い。51時間後のコールは「申し込んだっけ？」という状態でコールしている。\n\n` +
+    `① セミナー申込→実際の出席率1.2%（目標82%）\n` +
+    `② セミナー参加→IS引き渡しスピード51時間（目標4時間以内）\n\n` +
+    `**温度感が冷める構造**: セミナー参加直後が最も点理が高い。\n\n` +
     `**具体的な改善策**:\n` +
     `✓ セミナー終了と同時にISへSlack通知（自動化可能）\n` +
     `✓ ISのシフトをセミナー終了時間に合わせて調整\n` +
@@ -103,33 +155,28 @@ const KB: Record<string, string> = {
   ext:
     `**外部要因でファネルに最も影響しているのは？**\n\n` +
     `**影響強度ランキング**:\n` +
-    `1. 広告CPC相場（強度92%・逆風）: 広告フェーズのCACが直撃。¥1,840は業界最高水準。\n` +
-    `2. 市場マインド（強度86%・追い風）: 株高→投資意欲UP。セミナー・商談フェーズに追い風。ただし金利上昇が審査に逆風。\n` +
-    `3. 季節性（強度84%・追い風）: 今は予算消化・年度末シーズン。全フェーズに追い風。最大チャンス期。\n` +
-    `4. 競合動向（強度78%・逆風）: 初回商談・提案フェーズで直撃。無料プランとの価格比較・離脱が増加。\n\n` +
-    `**戦略的示唆**: 外部逆風（CPC・競合）はコントロール不可。今の追い風（季節性・市場）を最大活用するために、内部施策（ISスピード・商談品質）を今月中に集中実施することが最優先。`,
+    `1. 広告CPC相場（強度92%・逆風）\n` +
+    `2. 市場マインド（強度86%・追い風）\n` +
+    `3. 季節性（強度84%・追い風）\n` +
+    `4. 競合動向（強度78%・逆風）\n\n` +
+    `**戦略的示唠**: 外部逆風（CPC・競合）はコントロール不可。今の追い風（季節性・市場）を最大活用するために、内部施策（ISスピード・商談品質）を今月中に集中実施。`,
   priority:
     `**今月の最優先施策 TOP3（12月データ時点）**\n\n` +
     `🔴 **即時（今週中・コストゼロ）:**\n` +
     `① セミナー後4時間以内コールのSLA化\n` +
-    `→ IS対応→アポ歩留まりの最大レバー。ルール1本でも月次+¥100〜180万の改善余地。\n\n` +
-    `② アポリマインドSMS設定\n` +
-    `→ ノーショー率20.6%→8%以下へ。カレンダー連携ツールで翌日から効果。\n\n` +
+    `② アポリマインドSMS設定\n\n` +
     `🟡 **今月中（中期施策）:**\n` +
-    `③ ISワークスクリプト（BANT）標準化\n` +
-    `→ 担当者間31ptのスキル差を縮小。週次ロールプレイ+進捗共有でできるだけ早くアップ。\n\n` +
-    `**月次成約 143件 → 目標値適用後: 推定270件超**\n` +
-    `シミュレーターで全フェーズ目標値を適用ボタンを押すと上振れシナリオを確認できます。`,
+    `④ ISワークスクリプト（BANT）標準化\n\n` +
+    `**月次成約 143件 → 目標値適用後: 推定270件超**`,
   default:
     `**ファネル全体の現状（12月ダミーデータ時点）**\n\n` +
-    `📣 広告→セミナー申込: 1.8%（目標2.8%）→ -1.0pt\n` +
-    `🤝 セミナー→IS対応: 43.6%（目標58%）→ -14.4pt ⚠️\n` +
-    `📞 IS→アポ: 79.4%（目標88%）→ -8.6pt\n` +
-    `📅 アポ→初回商談: 55.8%（目標72%）→ -16.2pt ⚠️\n` +
-    `💻 初回商談→提案: 63.2%（目標74%）→ -10.8pt\n` +
-    `📄 提案→成約: 61.4%（目標74%）→ -12.6pt\n` +
-    `✅ 成約→追加購入: 24.8%（目標38%）→ -13.2pt\n\n` +
-    `最優先ボトルネック: セミナー→IS対応（目標比75%）とアポ→初回商談（目標比77%）。詳しく聞きたいフェーズを選択してください。`,
+    `📣 広告→セミナー申込: 1.8%（目標2.8%）\n` +
+    `🤝 セミナー→IS対応: 43.6%（目標58%）\n` +
+    `📞 IS→アポ: 79.4%（目標88%）\n` +
+    `📅 アポ→初回商談: 55.8%（目標72%）\n` +
+    `💻 初回商談→提案: 63.2%（目標74%）\n` +
+    `📄 提案→成約: 61.4%（目標74%）\n` +
+    `✅ 成約→追加購入: 24.8%（目標38%）`,
 }
 function getReply(q: string): string {
   const l = q.toLowerCase()
@@ -141,19 +188,28 @@ function getReply(q: string): string {
   return KB.default
 }
 
-// ─── ファネルタブ ─────────────────────────────────────────
-function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseClick: (id: string) => void }) {
+function FunnelTab({
+  monthIndex,
+  onPhaseClick,
+  monthlyData,
+  monthLabels,
+}: {
+  monthIndex: number
+  onPhaseClick: (id: string) => void
+  monthlyData: MonthlyRecord[]
+  monthLabels: string[]
+}) {
   const [trendPhase, setTrendPhase] = useState('is')
   const mi = monthIndex
   const mi1 = Math.max(0, mi - 1)
-  const vols = calcVols(mi)
+  const vols = calcVols(monthlyData, mi)
   const volArray = [vols.ad, vols.sem, vols.is, vols.appt, vols.first, vols.prop, vols.close, vols.upsell]
   const maxVol = Math.max(...volArray.filter(Boolean) as number[])
   const close = vols.close
-  const close1 = calcVols(mi1).close
+  const close1 = calcVols(monthlyData, mi1).close
   const rev = calcRevenue(close)
-  const cac = Math.round(MONTHLY[mi].ad * 120 / close)
-  const cvrAll = (close / MONTHLY[mi].ad * 100).toFixed(3)
+  const cac = Math.round(monthlyData[mi].ad * 120 / close)
+  const cvrAll = (close / monthlyData[mi].ad * 100).toFixed(3)
 
   const kpis = [
     { label: '月次成約件数', value: `${close}件`, sub: `前月比 ${close >= close1 ? '+' : ''}${close - close1}件`, good: close >= close1 },
@@ -163,14 +219,13 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
   ]
 
   const tp = PHASES.find(p => p.id === trendPhase)!
-  const trendData = MONTHLY.map((d, i) => ({
-    month: MONTH_LABELS[i],
+  const trendData = monthlyData.map((d, i) => ({
+    month: monthLabels[i],
     value: tp.yieldKey ? d[tp.yieldKey as keyof MonthlyRecord] as number : 0,
   }))
 
   return (
     <div className="space-y-3">
-      {/* KPI */}
       <div className="grid grid-cols-4 gap-2">
         {kpis.map(k => (
           <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-3">
@@ -181,7 +236,6 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
         ))}
       </div>
 
-      {/* ファネル */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex justify-between items-center mb-3">
           <div>
@@ -199,8 +253,8 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
         <div>
           {PHASES.map((p, i) => {
             const vol = volArray[i]
-            const yieldVal = p.yieldKey ? MONTHLY[mi][p.yieldKey as keyof MonthlyRecord] as number : null
-            const prevYieldVal = p.yieldKey ? MONTHLY[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
+            const yieldVal = p.yieldKey ? monthlyData[mi][p.yieldKey as keyof MonthlyRecord] as number : null
+            const prevYieldVal = p.yieldKey ? monthlyData[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
             const target = p.yieldTarget
             const hasY = yieldVal !== null && target !== null
             const barW = vol != null ? Math.round(vol / maxVol * 100) : 10
@@ -248,7 +302,6 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
         </div>
       </div>
 
-      {/* トレンドチャート */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex justify-between items-center mb-3">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">歩留まり推移（月次）</p>
@@ -285,20 +338,29 @@ function FunnelTab({ monthIndex, onPhaseClick }: { monthIndex: number; onPhaseCl
   )
 }
 
-// ─── フェーズ詳細タブ ────────────────────────────────────
-function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPhase: string }) {
+function PhaseTab({
+  monthIndex,
+  initialPhase,
+  monthlyData,
+  monthLabels,
+}: {
+  monthIndex: number
+  initialPhase: string
+  monthlyData: MonthlyRecord[]
+  monthLabels: string[]
+}) {
   const [selected, setSelected] = useState(initialPhase)
   useEffect(() => setSelected(initialPhase), [initialPhase])
 
   const mi = monthIndex
   const mi1 = Math.max(0, mi - 1)
   const p = PHASES.find(x => x.id === selected)!
-  const vols = calcVols(mi)
+  const vols = calcVols(monthlyData, mi)
   const volArray = [vols.ad, vols.sem, vols.is, vols.appt, vols.first, vols.prop, vols.close, vols.upsell]
   const idx = PHASES.findIndex(x => x.id === selected)
   const vol = volArray[idx]
-  const yieldVal = p.yieldKey ? MONTHLY[mi][p.yieldKey as keyof MonthlyRecord] as number : null
-  const prevYieldVal = p.yieldKey ? MONTHLY[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
+  const yieldVal = p.yieldKey ? monthlyData[mi][p.yieldKey as keyof MonthlyRecord] as number : null
+  const prevYieldVal = p.yieldKey ? monthlyData[mi1][p.yieldKey as keyof MonthlyRecord] as number : null
   const target = p.yieldTarget
   const hasY = yieldVal !== null && target !== null
   const dy = hasY && prevYieldVal !== null ? yieldVal! - prevYieldVal : null
@@ -307,7 +369,6 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
 
   return (
     <div>
-      {/* フェーズ選択 */}
       <div className="flex gap-1 flex-wrap mb-3">
         {PHASES.map(ph => (
           <button
@@ -321,11 +382,10 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
         ))}
       </div>
 
-      {/* ヘッダー */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-3">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="flex-1 min-w-48">
-            <p className="text-xs text-gray-400 mb-1">{p.icon} {p.name} → {p.owner} / {MONTH_LABELS[mi]}</p>
+            <p className="text-xs text-gray-400 mb-1">{p.icon} {p.name} → {p.owner} / {monthLabels[mi]}</p>
             <p className="text-2xl font-medium" style={{ color: p.ownerColor }}>
               {fmtN(vol ?? 0)}<span className="text-sm font-normal text-gray-400 ml-1">{p.volUnit}</span>
             </p>
@@ -366,7 +426,6 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {/* 課題 */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">歩留まりを下げている要因（説明変数）</p>
           <div className="space-y-2.5">
@@ -387,7 +446,6 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
           </div>
         </div>
 
-        {/* 施策 */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">改善施策</p>
           <p className="text-xs text-gray-400 mb-3">
@@ -410,18 +468,17 @@ function PhaseTab({ monthIndex, initialPhase }: { monthIndex: number; initialPha
   )
 }
 
-// ─── 改善シミュタブ ──────────────────────────────────────
-function SimTab({ monthIndex }: { monthIndex: number }) {
+function SimTab({ monthIndex, monthlyData }: { monthIndex: number; monthlyData: MonthlyRecord[] }) {
   const [overrides, setOverrides] = useState<Overrides>({})
   const mi = monthIndex
-  const base = calcVols(mi)
-  const sim = calcVols(mi, overrides)
+  const base = calcVols(monthlyData, mi)
+  const sim = calcVols(monthlyData, mi, overrides)
   const baseRev = calcRevenue(base.close)
   const simRev = calcRevenue(sim.close)
   const dr = simRev - baseRev
   const dc = sim.close - base.close
-  const cvrBase = (base.close / MONTHLY[mi].ad * 100).toFixed(3)
-  const cvrSim = (sim.close / MONTHLY[mi].ad * 100).toFixed(3)
+  const cvrBase = (base.close / monthlyData[mi].ad * 100).toFixed(3)
+  const cvrSim = (sim.close / monthlyData[mi].ad * 100).toFixed(3)
 
   const sliders = PHASES.filter(p => p.yieldKey && p.yieldTarget)
   const applyTarget = () => {
@@ -443,14 +500,13 @@ function SimTab({ monthIndex }: { monthIndex: number }) {
 
   return (
     <div className="space-y-3">
-      {/* スライダー */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">歩留まり改善シミュレーター</p>
         <p className="text-xs text-gray-400 mb-4">スライダーを動かすと成約件数・売上への影響をリアルタイム計算</p>
         <div className="space-y-4">
           {sliders.map(p => {
             const key = p.yieldKey as keyof MonthlyRecord
-            const cur = MONTHLY[mi][key] as number
+            const cur = monthlyData[mi][key] as number
             const sv = (overrides as Record<string, number>)[p.yieldKey!] ?? cur
             const min = Math.max(0, cur - 20).toFixed(1)
             const max = Math.min(100, p.yieldTarget! + 10).toFixed(1)
@@ -490,7 +546,6 @@ function SimTab({ monthIndex }: { monthIndex: number }) {
         </div>
       </div>
 
-      {/* 結果 */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="grid grid-cols-4 gap-3 mb-3">
           {[
@@ -508,11 +563,10 @@ function SimTab({ monthIndex }: { monthIndex: number }) {
         </div>
         <p className="text-xs text-gray-400">
           全体CVR: {cvrBase}% → <strong style={{ color: parseFloat(cvrSim) > parseFloat(cvrBase) ? G : R }}>{cvrSim}%</strong>
-          月次売上: {fmtY(baseRev)} → <strong style={{ color: dr >= 0 ? G : R }}>{fmtY(simRev)}</strong>
+          　月次売上: {fmtY(baseRev)} → <strong style={{ color: dr >= 0 ? G : R }}>{fmtY(simRev)}</strong>
         </p>
       </div>
 
-      {/* インパクトチャート */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">フェーズ別 歩留まり+1pt の売上インパクト</p>
         <ResponsiveContainer width="100%" height={200}>
@@ -530,7 +584,6 @@ function SimTab({ monthIndex }: { monthIndex: number }) {
   )
 }
 
-// ─── 外部要因タブ ────────────────────────────────────────
 function ExtTab() {
   const [selExt, setSelExt] = useState('cpc')
   const factor = EXTERNAL_FACTORS.find(f => f.id === selExt)!
@@ -540,7 +593,6 @@ function ExtTab() {
 
   return (
     <div className="space-y-3">
-      {/* マトリクス */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">外部要因 × フェーズ 影響マトリクス</p>
         <p className="text-xs text-gray-400 mb-3">どの外部要因がどのフェーズの歩留まりに効くか可視化</p>
@@ -582,7 +634,6 @@ function ExtTab() {
         </div>
       </div>
 
-      {/* トレンドチャート */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex justify-between items-center mb-3">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">外部要因トレンド（12週）</p>
@@ -616,7 +667,6 @@ function ExtTab() {
   )
 }
 
-// ─── AI分析タブ ──────────────────────────────────────────
 function AITab() {
   const [aiPhase, setAiPhase] = useState('ad')
   const [messages, setMessages] = useState<Msg[]>([])
@@ -651,7 +701,6 @@ function AITab() {
         <p className="text-xs text-gray-400">フェーズ構造・外部要因を踏まえて回答</p>
       </div>
 
-      {/* フェーズ選択 */}
       <div className="flex gap-1 flex-wrap mb-3">
         {PHASES.map(p => (
           <button
@@ -665,7 +714,6 @@ function AITab() {
         ))}
       </div>
 
-      {/* クイック質問チップ */}
       <div className="flex flex-wrap gap-1.5 mb-3">
         {chips.map(q => (
           <button
@@ -678,7 +726,6 @@ function AITab() {
         ))}
       </div>
 
-      {/* メッセージ */}
       <div ref={chatRef} className="flex flex-col gap-2 max-h-72 overflow-y-auto mb-3">
         {messages.length === 0 && (
           <p className="text-xs text-gray-300 text-center py-6">上のチップをクリックするか、自由に質問してください</p>
@@ -690,7 +737,6 @@ function AITab() {
         ))}
       </div>
 
-      {/* 入力 */}
       <div className="flex gap-2">
         <input
           value={input}
@@ -710,35 +756,102 @@ function AITab() {
   )
 }
 
-// ─── メインApp ──────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState<Tab>('funnel')
   const [monthIndex, setMonthIndex] = useState(3)
   const [selectedPhase, setSelectedPhase] = useState('ad')
+  const [monthlyData, setMonthlyData] = useState<MonthlyRecord[]>(MONTHLY)
+  const [monthLabels, setMonthLabels] = useState<string[]>(MONTH_LABELS)
+  const [csvError, setCsvError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handlePhaseClick = (id: string) => {
     setSelectedPhase(id)
     setTab('phase')
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const result = parseCSV(text)
+      if (result && result.data.length > 0) {
+        setMonthlyData(result.data)
+        setMonthLabels(result.labels)
+        setMonthIndex(0)
+        setCsvError('')
+      } else {
+        setCsvError('CSVの形式が正しくありません。テンプレートを確認してください。')
+      }
+    }
+    reader.readAsText(file, 'UTF-8')
+    e.target.value = ''
+  }
+
+  const resetData = () => {
+    setMonthlyData(MONTHLY)
+    setMonthLabels(MONTH_LABELS)
+    setMonthIndex(3)
+    setCsvError('')
+  }
+
+  const isCustomData = monthlyData !== MONTHLY
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ヘッダー */}
-      <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
-        <h1 className="text-sm font-semibold text-gray-900">セールスファネル ダッシュボード ダミーデータ</h1>
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-sm font-semibold text-gray-900">
+          セールスファネル ダッシュボード
+          {isCustomData && (
+            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+              CSVデータ反映中
+            </span>
+          )}
+        </h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          {csvError && (
+            <span className="text-xs text-red-500">{csvError}</span>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <button
+            onClick={downloadTemplate}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+          >
+            テンプレDL
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            CSVを読み込む
+          </button>
+          {isCustomData && (
+            <button
+              onClick={resetData}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+            >
+              デフォルトに戻す
+            </button>
+          )}
           <span className="text-xs text-gray-400">月次:</span>
           <select
             value={monthIndex}
             onChange={e => setMonthIndex(Number(e.target.value))}
             className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600"
           >
-            {MONTH_LABELS.map((label, i) => <option key={i} value={i}>2024年{label}</option>)}
+            {monthLabels.map((label, i) => <option key={i} value={i}>{label}</option>)}
           </select>
         </div>
       </header>
 
-      {/* タブナビ */}
       <div className="bg-white border-b border-gray-200 px-5">
         <nav className="flex">
           {TABS.map(t => (
@@ -753,11 +866,26 @@ export default function App() {
         </nav>
       </div>
 
-      {/* コンテンツ */}
       <main className="max-w-5xl mx-auto p-4">
-        {tab === 'funnel' && <FunnelTab monthIndex={monthIndex} onPhaseClick={handlePhaseClick} />}
-        {tab === 'phase' && <PhaseTab monthIndex={monthIndex} initialPhase={selectedPhase} />}
-        {tab === 'sim' && <SimTab monthIndex={monthIndex} />}
+        {tab === 'funnel' && (
+          <FunnelTab
+            monthIndex={monthIndex}
+            onPhaseClick={handlePhaseClick}
+            monthlyData={monthlyData}
+            monthLabels={monthLabels}
+          />
+        )}
+        {tab === 'phase' && (
+          <PhaseTab
+            monthIndex={monthIndex}
+            initialPhase={selectedPhase}
+            monthlyData={monthlyData}
+            monthLabels={monthLabels}
+          />
+        )}
+        {tab === 'sim' && (
+          <SimTab monthIndex={monthIndex} monthlyData={monthlyData} />
+        )}
         {tab === 'ext' && <ExtTab />}
         {tab === 'ai' && <AITab />}
       </main>
