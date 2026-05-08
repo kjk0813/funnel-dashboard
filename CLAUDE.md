@@ -53,49 +53,11 @@ src/
 
 ```ts
 export const MONTHLY: MonthlyRecord[] = [
-  // 各月のデータを差し替える
   { ad: 95000, sem_y: 2.4, is_y: 51.2, appt_y: 82.8, first_y: 60.2, prop_y: 68.4, close_y: 65.8, up_y: 26.2 },
   ...
 ]
 export const AVG_FEE = 92000  // 平均手数料（円/件）
 ```
-
-| キー | 意味 | 単位 |
-|------|------|------|
-| `ad` | 広告インプレッション数 | imp |
-| `sem_y` | 広告→セミナー申込率 | % |
-| `is_y` | セミナー→IS移行率 | % |
-| `appt_y` | IS→アポ獲得率 | % |
-| `first_y` | アポ→初回商談率 | % |
-| `prop_y` | 初回商談→提案率 | % |
-| `close_y` | 提案→成約率 | % |
-| `up_y` | 成約→追加購入率 | % |
-
-### フェーズ目標値を変える（src/data/phases.ts）
-
-`yieldTarget` の値を変更する。`impactPerPt` は歩留まり+1ptの月次売上インパクト（円）。
-
-### 外部要因を追加・変更する（src/data/external.ts）
-
-`EXTERNAL_FACTORS` に要素を追加し、`IMPACT_MATRIX` にそのIDのキーを追加する。
-影響マトリクスの値: `'+h'`（強いポジ）〜`'-h'`（強いネガ）、`'–'`（影響なし）
-
-## 計算ロジック（useFunnelCalc.ts）
-
-```
-ad → [×sem_y%] → sem → [×is_y%] → is → [×appt_y%] → appt
-→ [×first_y%] → first → [×prop_y%] → prop → [×close_y%] → close
-→ [×up_y%] → upsell
-```
-
-`calcVols(monthIndex, overrides)` でオーバーライドを渡すとシミュ計算に使用。
-
-## 今後の実装予定
-
-- [ ] AI分析タブに Gemini API 接続（`VITE_GEMINI_API_KEY` 環境変数を使用）
-- [ ] 実データCSV取り込み機能
-- [ ] 月次データ追加（1月以降）
-- [ ] フェーズ別担当者設定・アラート機能
 
 ## GitHub Pages URL
 
